@@ -1,0 +1,141 @@
+##apiVersion: apps/v1beta1
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: ${branch}-${REPO}
+  namespace: ${branch}
+  labels:
+    k8s-app: tomcat
+    name: ${branch}-${REPO}
+  
+spec:
+  replicas: 2
+  template:
+    metadata:
+      labels: 
+        k8s-app: tomcat
+        name: ${branch}-${REPO}
+    spec:
+      containers:
+      - name: ${branch}-${REPO}
+        image: ${ORIGIN_REPO}/${branch}/${REPO}:${BUILD_NUMBER}
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8080
+        - name: http-metrics
+          containerPort: 9151
+
+        env:
+        - name: LIMITS_MEMORY
+          valueFrom:
+            resourceFieldRef:
+              resource: limits.memory
+              divisor: 1Mi
+        - name: LIMITS_CPU
+          valueFrom:
+            resourceFieldRef:
+              resource: limits.cpu
+        - name: MY_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: MY_POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: JAVA_OPTS
+          value: -javaagent:/usr/local/tomcat/lib/jmx_prometheus_javaagent-0.9.jar=9151:/usr/local/tomcat/lib/jmx_config.yaml -Xmx$(LIMITS_MEMORY)m -Dmy.pod.name=$(MY_POD_NAME) -Dmy.pod.namespace=$(MY_POD_NAMESPACE) -Djava.awt.headless=true -Djava.security.egd=file:/dev/./urandom -Dfile.encoding=UTF-8 -server -Duser.timezone=GMT+08 -XX:+UseConcMarkSweepGC -XX:+UseParNewGC -XX:+DisableExplicitGC
+
+        volumeMounts:
+        - name: tomcat-logs
+          mountPath: /usr/local/tomcat/logs
+        - name: tomcat-config
+          mountPath: /usr/local/tomcat/conf/server.xml
+          subPath: server.xml
+        - name: tomcat-config
+          mountPath: /usr/local/tomcat/conf/logging.properties
+          subPath: logging.properties
+        - name: tomcat-config
+          mountPath: /usr/local/tomcat/conf/context.xml
+          subPath: context.xml
+        - name: tomcat-config
+          mountPath: /usr/local/tomcat/conf/tomcat-users.xml
+          subPath: tomcat-users.xml
+
+        livenessProbe:  
+          httpGet:
+            path: /healthcheck.html
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+
+        readinessProbe:
+          httpGet:
+            port: 8080
+            path: /healthcheck.html
+          initialDelaySeconds: 30
+          periodSeconds: 5
+
+        resources:
+          requests:
+            cpu: 300m
+            memory: 200Mi
+          limits:
+            cpu: 2
+            memory: 500Mi
+
+      imagePullSecrets:
+      - name: ${KUBERNETES_SECRET_NAME}
+      restartPolicy: Always
+
+      volumes:
+      - name: tomcat-logs
+        hostPath:
+          path: /opt/logs/tomcat/${branch}/${REPO}
+      - name: tomcat-config
+        configMap:
+          name: tomcat-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${branch}-${REPO}
+  namespace: ${branch}
+  labels:
+    k8s-app: tomcat
+spec:
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: 8080
+    name: http
+  - port:  9151
+    protocol: TCP
+    targetPort: 9151
+    name: http-metrics
+
+  selector:
+    name: ${branch}-${REPO}
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: traefik-${branch}-${REPO}
+  namespace: ${branch}
+  annotations:
+    kubernetes.io/ingress.class: traefik
+#    traefik.frontend.rule.type: PathPrefixStrip
+    traefik.frontend.rule.type: PathPrefix
+spec:
+  rules:
+  - host: yzkf2.mail.10086.cn
+    http:
+      paths:
+      - path: /${REPO}
+        backend:
+          serviceName: ${branch}-${REPO}
+          servicePort: 8080

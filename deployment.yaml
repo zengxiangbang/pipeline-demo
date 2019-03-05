@@ -7,7 +7,9 @@ metadata:
   labels:
     k8s-app: tomcat
     name: ${branch}-${REPO}
-  
+  annotations:
+    kubernetes.io/change-cause: ${BUILD_TAG} 
+
 spec:
   replicas: 2
   template:

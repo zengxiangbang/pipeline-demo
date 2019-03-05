@@ -94,7 +94,11 @@ pipeline{
         // 定义第一个stage， 完成克隆源码的任务
         stage('Git'){
           steps{
-                git branch: "${IN_BRANCH}", credentialsId: 'gitlab', url: "${IN_GIT_URL}"
+         //     git branch: "${IN_BRANCH}", credentialsId: 'gitlab', url: "${IN_GIT_URL}"
+                checkout([$class: 'GitSCM', branches: [[name: "${IN_BRANCH}"]], doGenerateSubmoduleConfigurations: false,
+                extensions: [[$class: 'UserIdentity', email: "${IN_GITEMAIL}", name: "${IN_GITUSERNAME}"],
+                [$class: 'PerBuildTag']], 
+                userRemoteConfigs: [[url: "${IN_GIT_URL}"]]])
               }
         }
 
@@ -167,14 +171,33 @@ pipeline{
                     sh "echo $version"
                     sh """ 
                    	git checkout master
-					git merge $IN_BRANCH -m "$IN_BRANCH `date +"%Y%m%d"`" 
+					git merge origin/$IN_BRANCH -m "$IN_BRANCH `date +"%Y%m%d"`" 
 					git push origin master
 					env
-					git tag -a $version -m '提交人: '${IN_GITUSERNAME}
-					git push -u origin master --tags
 					"""
+		//			git tag -a $version -m '提交人: '${IN_GITUSERNAME}
+		//			git push -u origin master --tags
                     }
                 }
       }
+      post {
+        success {
+            sh "env"
+                emailext body: '${DEFAULT_CONTENT}',
+        //      emailext body: '${JELLY_SCRIPT,template="static-analysis"}', 
+			    subject: '构建通知:${BUILD_STATUS} - ${PROJECT_NAME} - Build # ${BUILD_NUMBER} !',
+				to: "${IN_GITEMAIL}",
+				recipientProviders: [
+//				    [$class: 'CulpritsRecipientProvider'],
+                    [$class: 'DevelopersRecipientProvider'],
+//                  [$class: 'RequesterRecipientProvider']
+				    ]
+                }   
+        failure {
+                emailext body: '${JELLY_SCRIPT,template="static-analysis"}', 
+			    subject: '构建通知:${BUILD_STATUS} - ${PROJECT_NAME} - Build # ${BUILD_NUMBER} !',
+				to: "${IN_GITEMAIL}"
+                }
+    }
     }
 
